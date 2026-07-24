@@ -74,7 +74,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { game_exe:"GTA5.exe".into(), open_chat_key:"t".into(), mode:"Car".into(), volume:100, always_on_top:true, close_after_play:true, start_minimized:false, theme:Theme::default(), window_scale:1.0, heading_scale:1.0, body_scale:1.0, small_scale:1.0, nav_scale:1.0, orientation:"Portrait".into(), default_page:"Library".into(), library_sort:"Favorites First".into(), window_opacity:1.0, confirm_before_exit:false, remember_window_position:false, window_x:None, window_y:None, window_width:None, window_height:None, position_locked:false, time_format:"12-hour".into(), time_zone:"System".into(), default_playback_mode:"Car".into() }
+        Self { game_exe:"GTA5.exe".into(), open_chat_key:"t".into(), mode:"Car".into(), volume:100, always_on_top:true, close_after_play:true, start_minimized:false, theme:Theme::default(), window_scale:0.8, heading_scale:1.0, body_scale:1.0, small_scale:1.0, nav_scale:1.0, orientation:"Portrait".into(), default_page:"Library".into(), library_sort:"Favorites First".into(), window_opacity:1.0, confirm_before_exit:false, remember_window_position:false, window_x:None, window_y:None, window_width:None, window_height:None, position_locked:false, time_format:"12-hour".into(), time_zone:"System".into(), default_playback_mode:"Car".into() }
     }
 }
 
