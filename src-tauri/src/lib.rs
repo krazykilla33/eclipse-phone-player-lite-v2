@@ -34,6 +34,11 @@ fn open_youtube_search(query:String)->Result<(),String>{
 #[tauri::command] fn send_to_game(app:tauri::AppHandle,text:String,open_chat:bool)->Result<(),String>{let s=storage::load_settings(&app)?;windows_control::send(&s.game_exe,&s.open_chat_key,&text,open_chat)}
 #[tauri::command] fn copy_url(text:String)->Result<(),String>{let mut clipboard=arboard::Clipboard::new().map_err(|e|e.to_string())?;clipboard.set_text(text).map_err(|e|e.to_string())}
 #[tauri::command] fn import_legacy(app:tauri::AppHandle)->Result<usize,String>{let path=storage::find_legacy_file().ok_or("MusicList.txt was not found beside the app. Place it beside the executable and try again.")?;let mut imported=storage::import_csv(&path)?;media::enrich_legacy_songs(&mut imported);let count=imported.len();storage::save_songs(&app,&imported)?;storage::write_updated_csv(&path,&imported)?;Ok(count)}
+#[tauri::command]
+fn open_data_folder(app:tauri::AppHandle)->Result<(),String>{
+    let path=storage::data_dir(&app)?;
+    tauri_plugin_opener::open_path(path,None::<&str>).map_err(|e|format!("Could not open the data folder: {e}"))
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -66,7 +71,7 @@ pub fn run() {
             let _=gs.register(Shortcut::new(Some(Modifiers::SHIFT),Code::F3));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_state,save_songs,save_settings,search_youtube,fetch_metadata,open_youtube_search,send_to_game,copy_url,import_legacy])
+        .invoke_handler(tauri::generate_handler![get_state,save_songs,save_settings,search_youtube,fetch_metadata,open_youtube_search,send_to_game,copy_url,import_legacy,open_data_folder])
         .run(tauri::generate_context!())
         .expect("error while running Eclipse Phone Player Lite");
 }

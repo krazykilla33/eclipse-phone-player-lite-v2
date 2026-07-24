@@ -18,6 +18,7 @@ let busy = false;
 let toastTimer = 0;
 let positionSaveTimer = 0;
 let sizeSaveTimer = 0;
+let settingsSaveTimer = 0;
 let modalEscapeHandler: ((event: KeyboardEvent) => void) | null = null;
 
 const icon = (name: string) => {
@@ -256,26 +257,26 @@ function renderSettings(view: HTMLElement): void {
     <label class="form-row"><span>Default library sorting</span><select id="default-library-sort">${(["Artist","Title","Album","Recently Added","Favorites First"] as const).map(value=>`<option ${state.settings.librarySort===value?"selected":""}>${value}</option>`).join("")}</select></label>
     <label class="form-row range-setting opacity-setting"><span>Phone opacity <output>${Math.round(state.settings.windowOpacity*100)}%</output></span><input id="window-opacity" type="range" min="0.55" max="1" step="0.05" value="${state.settings.windowOpacity}"/><small>Changes the transparency of the complete phone.</small></label>
     <label class="form-row range-setting"><span>Phone size <output>${Math.round(state.settings.windowScale * 100)}%</output></span><input id="window-scale" type="range" min="0.75" max="1.15" step="0.05" value="${state.settings.windowScale}"/><small>The layout condenses below 90% while text stays readable.</small></label></section>
+    <section class="settings-section"><p class="section-label">CLOCK</p>
+    <label class="form-row"><span>Time format</span><select id="time-format"><option value="12-hour" ${state.settings.timeFormat==="12-hour"?"selected":""}>12-hour</option><option value="24-hour" ${state.settings.timeFormat==="24-hour"?"selected":""}>24-hour</option></select><small>Choose how the status-bar clock is displayed.</small></label>
+    <label class="form-row"><span>Time zone</span><select id="time-zone"><option value="System" ${state.settings.timeZone==="System"?"selected":""}>System time</option><option value="UTC" ${state.settings.timeZone==="UTC"?"selected":""}>UTC time</option></select><small>Use your computer's time zone or Coordinated Universal Time.</small></label></section>
+    <section class="settings-section"><p class="section-label">DATA</p><button id="open-data-folder" class="settings-row"><span class="settings-icon">📁</span><span><strong>Open data folder</strong><small>Find library.json, settings-lite.json and backups</small></span>${icon("chevron")}</button></section>
     <section class="settings-section"><p class="section-label">MIGRATION</p><button id="import-legacy" class="settings-row"><span class="settings-icon">AHK</span><span><strong>Import MusicList.txt</strong><small>Bring your existing AHK library into this app</small></span>${icon("chevron")}</button></section>
-    <button id="save-settings" class="primary-wide">Save settings</button></div>`;
-  document.querySelector<HTMLSelectElement>("#theme-select")!.onchange = async e => { const theme = themes.find(x => x.name === (e.target as HTMLSelectElement).value); if (theme) { state.settings.theme = structuredClone(theme); applyTheme(theme); await api.saveSettings(state.settings); render(); } else { themeEditor(); } };
+    </div>`;
+  document.querySelector<HTMLSelectElement>("#theme-select")!.onchange = async e => { const theme = themes.find(x => x.name === (e.target as HTMLSelectElement).value); if (theme) { state.settings.theme = structuredClone(theme); applyTheme(theme); await api.saveSettings(state.settings); render(); toast("Settings saved"); } else { themeEditor(); } };
   document.querySelector<HTMLButtonElement>("#edit-theme")!.onclick = themeEditor;
   document.querySelectorAll<HTMLInputElement>("[data-text-scale]").forEach(input => input.oninput = () => {
     const key=input.dataset.textScale as "headingScale"|"bodyScale"|"smallScale"|"navScale";
-    state.settings[key]=+input.value; input.parentElement!.querySelector("output")!.textContent=`${Math.round(+input.value*100)}%`; applyTextScales();
+    state.settings[key]=+input.value; input.parentElement!.querySelector("output")!.textContent=`${Math.round(+input.value*100)}%`; applyTextScales(); scheduleSettingsSave();
   });
-  document.querySelector<HTMLButtonElement>("#reset-text-sizes")!.onclick = () => { state.settings.headingScale=state.settings.bodyScale=state.settings.smallScale=state.settings.navScale=1;applyTextScales();renderSettings(view); };
+  document.querySelector<HTMLButtonElement>("#reset-text-sizes")!.onclick = async () => { state.settings.headingScale=state.settings.bodyScale=state.settings.smallScale=state.settings.navScale=1;applyTextScales();await api.saveSettings(state.settings);renderSettings(view);toast("Settings saved"); };
   document.querySelector<HTMLInputElement>("#window-scale")!.oninput = e => { const input=e.target as HTMLInputElement,value=+input.value; state.settings.windowScale = value; input.parentElement!.querySelector("output")!.textContent = `${Math.round(value * 100)}%`; resizePhone(); scheduleSettingsSave(); };
-  document.querySelector<HTMLInputElement>("#window-opacity")!.oninput = e => { const input=e.target as HTMLInputElement,value=+input.value;state.settings.windowOpacity=value;input.parentElement!.querySelector("output")!.textContent=`${Math.round(value*100)}%`;applyWindowOpacity(); };
+  document.querySelector<HTMLInputElement>("#window-opacity")!.oninput = e => { const input=e.target as HTMLInputElement,value=+input.value;state.settings.windowOpacity=value;input.parentElement!.querySelector("output")!.textContent=`${Math.round(value*100)}%`;applyWindowOpacity();scheduleSettingsSave(); };
   document.querySelector<HTMLButtonElement>("#import-legacy")!.onclick = async e => { const button=e.currentTarget as HTMLButtonElement;button.disabled=true;button.querySelector("strong")!.textContent="Importing…";try { const count = await api.importLegacy(); state = await api.state(); selectedId = state.songs[0]?.id ?? ""; render();toast(`Imported ${count} songs`); } catch (error) { errorToast(error);button.disabled=false;button.querySelector("strong")!.textContent="Import MusicList.txt"; } };
-  document.querySelector<HTMLInputElement>("#lock-position")!.onchange = async e => {
-    positionLocked = (e.target as HTMLInputElement).checked;
-    state.settings.positionLocked = positionLocked;
-    applyPositionLock();
-    await api.saveSettings(state.settings);
-    toast(positionLocked ? "Phone position locked" : "Phone position unlocked");
-  };
-  document.querySelector<HTMLButtonElement>("#save-settings")!.onclick = saveSettingsForm;
+  document.querySelector<HTMLButtonElement>("#open-data-folder")!.onclick = () => api.openDataFolder().catch(errorToast);
+  ["always-top","close-after","confirm-exit","remember-position","lock-position"].forEach(id => document.querySelector<HTMLInputElement>(`#${id}`)!.onchange = saveSettingsForm);
+  ["startup-orientation","default-page","default-library-sort","default-playback-mode","time-format","time-zone"].forEach(id => document.querySelector<HTMLSelectElement>(`#${id}`)!.onchange = saveSettingsForm);
+  ["game-exe","chat-key"].forEach(id => document.querySelector<HTMLInputElement>(`#${id}`)!.onchange = saveSettingsForm);
 }
 
 function toggleRow(id: string, title: string, copy: string, checked: boolean): string {
@@ -316,7 +317,11 @@ async function saveSettingsForm(): Promise<void> {
   state.settings.defaultPage = document.querySelector<HTMLSelectElement>("#default-page")!.value as typeof state.settings.defaultPage;
   state.settings.librarySort = document.querySelector<HTMLSelectElement>("#default-library-sort")!.value as typeof state.settings.librarySort;
   state.settings.defaultPlaybackMode = document.querySelector<HTMLSelectElement>("#default-playback-mode")!.value as typeof state.settings.defaultPlaybackMode;
+  state.settings.timeFormat = document.querySelector<HTMLSelectElement>("#time-format")!.value as typeof state.settings.timeFormat;
+  state.settings.timeZone = document.querySelector<HTMLSelectElement>("#time-zone")!.value as typeof state.settings.timeZone;
   await api.saveSettings(state.settings); try { await getCurrentWindow().setAlwaysOnTop(state.settings.alwaysOnTop); } catch { }
+  applyPositionLock();
+  updateClock();
   toast("Settings saved");
 }
 
@@ -514,11 +519,22 @@ async function watchWindowGeometry():Promise<void>{
 }
 
 function scheduleSettingsSave():void {
-  window.clearTimeout(sizeSaveTimer);
-  sizeSaveTimer=window.setTimeout(()=>api.saveSettings(state.settings).catch(()=>undefined),400);
+  window.clearTimeout(settingsSaveTimer);
+  settingsSaveTimer=window.setTimeout(()=>api.saveSettings(state.settings).then(()=>toast("Settings saved")).catch(errorToast),450);
 }
 
-function startClock(): void { const update = () => { const el = document.querySelector("#clock"); if (el) el.textContent = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(new Date()); }; update(); window.setInterval(update, 30_000); }
+function updateClock():void {
+  const el=document.querySelector("#clock");
+  if(!el)return;
+  el.textContent=new Intl.DateTimeFormat([],{
+    hour:"2-digit",
+    minute:"2-digit",
+    hour12:state.settings.timeFormat!=="24-hour",
+    ...(state.settings.timeZone==="UTC"?{timeZone:"UTC"}:{})
+  }).format(new Date());
+}
+
+function startClock(): void { updateClock(); window.setInterval(updateClock, 30_000); }
 
 function startVisualizer(): void {
   const canvas = document.querySelector<HTMLCanvasElement>("#visualizer"); if (!canvas) return; const ctx = canvas.getContext("2d")!; let frame = 0;
@@ -529,7 +545,7 @@ function startVisualizer(): void {
 
 async function init(): Promise<void> {
   try {
-    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
+    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";state.settings.timeFormat||="12-hour";state.settings.timeZone||="System";landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
     await listen<string>("hotkey", async ({ payload }) => {
       if (!state.songs.length) return;
       const previousMode = state.settings.mode;

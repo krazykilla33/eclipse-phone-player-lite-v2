@@ -63,6 +63,8 @@ export interface Settings {
   windowWidth: number | null;
   windowHeight: number | null;
   positionLocked: boolean;
+  timeFormat: "12-hour" | "24-hour";
+  timeZone: "System" | "UTC";
   defaultPlaybackMode: OutputMode;
 }
 
