@@ -40,12 +40,12 @@ fn update_shortcuts(app:&tauri::AppHandle,previous:&Settings,next:&Settings)->Re
     let manager=app.global_shortcut();
     let old_changed:Vec<Shortcut>=changed.iter().map(|(old,_)|old.clone()).collect();
     let new_changed:Vec<Shortcut>=changed.iter().map(|(_,new)|new.clone()).collect();
-    manager.unregister_multiple(old_changed.iter()).map_err(|e|format!("Could not update hotkeys: {e}"))?;
-    if let Err(error)=manager.register_multiple(new_changed.iter()){
+    manager.unregister_multiple(old_changed.clone()).map_err(|e|format!("Could not update hotkeys: {e}"))?;
+    if let Err(error)=manager.register_multiple(new_changed.clone()){
         // A failed multi-register can leave some of the new shortcuts active.
         // Remove them before restoring the known-good previous bindings.
-        let _=manager.unregister_multiple(new_changed.iter());
-        let _=manager.register_multiple(old_changed.iter());
+        let _=manager.unregister_multiple(new_changed);
+        let _=manager.register_multiple(old_changed);
         return Err(format!("Could not register the selected hotkeys: {error}"));
     }
     Ok(())

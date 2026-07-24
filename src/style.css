@@ -63,6 +63,17 @@ button,input,select{font:inherit}
 @media(max-width:760px) and (orientation:landscape){.phone-wrap.landscape .page-library>.searchbox{left:145px;right:185px}.phone-wrap.landscape .page-library .floating-play{right:34px;bottom:92px}}
 .quick-add-card{align-self:center}.quick-url-field{display:flex;flex-direction:column;gap:7px;margin:8px 0 10px;color:var(--muted);font-size:10px}.quick-url-field input{height:46px;border:1px solid #ffffff18;border-radius:14px;background:var(--field);color:var(--text);padding:0 13px;outline:0}.quick-url-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}.quick-add-note{margin:0 0 16px;color:var(--muted);font-size:9px;line-height:1.5}.quick-add-card .primary-wide:disabled{opacity:.65}
 
+/* First-launch quick guide follows the active phone theme in both orientations. */
+.guide-card{width:min(460px,100%);display:flex;flex-direction:column;gap:12px;overflow:hidden;padding:20px}
+.guide-head{flex:none;margin:0}.guide-head h2{margin:5px 0 0;font-size:22px}
+.guide-list{display:grid;gap:7px;min-height:0;overflow-y:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--accent) 42%,transparent) transparent}
+.guide-row{min-height:64px;border:1px solid #ffffff10;border-radius:17px;background:#ffffff06;display:grid;grid-template-columns:42px 1fr;align-items:center;gap:11px;padding:9px 11px}
+.guide-row>span:last-child{min-width:0;display:flex;flex-direction:column;gap:4px}.guide-row strong{font-size:calc(11px * var(--body-scale));line-height:1.2}.guide-row small{color:var(--muted);font-size:calc(8.5px * var(--small-scale));line-height:1.42}
+.guide-row code,.guide-row small b{color:var(--accent);font:inherit;font-weight:800}
+.guide-icon{width:40px;height:40px;border-radius:13px;background:linear-gradient(145deg,color-mix(in srgb,var(--accent-2) 24%,transparent),color-mix(in srgb,var(--accent) 13%,transparent));color:var(--accent);display:grid;place-items:center;border:1px solid #ffffff0d}
+.guide-icon svg{width:20px;height:20px}.guide-icon b{max-width:36px;padding:0 3px;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.guide-footer{flex:none;display:flex;flex-direction:column;gap:8px}.guide-footer small{text-align:center;color:var(--muted);font-size:calc(8px * var(--small-scale));line-height:1.35}
+
 /* Correctly anchor the battery terminal to the icon instead of the top bar. */
 .battery{position:relative}
 .battery:after{right:-3px;top:2px;margin:0}
@@ -86,6 +97,11 @@ button,input,select{font:inherit}
   .modal-card{max-height:calc(100vh - 20px);border-radius:20px;padding:16px}
   .confirm-card{grid-template-columns:42px 1fr}
   .confirm-icon{width:40px;height:40px;border-radius:13px}
+  .guide-card{width:min(720px,100%);gap:9px;padding:15px}
+  .guide-list{grid-template-columns:1fr 1fr;gap:6px 8px}
+  .guide-row{min-height:58px;padding:7px 9px;grid-template-columns:38px 1fr}
+  .guide-icon{width:36px;height:36px;border-radius:11px}
+  .guide-footer{display:grid;grid-template-columns:minmax(230px,1fr) 1fr;align-items:center;gap:12px}
 }
 
 /* Compact global-hotkey editor, sized to fill the Playback card cleanly in landscape. */

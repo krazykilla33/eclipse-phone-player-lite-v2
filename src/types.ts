@@ -70,6 +70,7 @@ export interface Settings {
   randomSpeakerHotkey: string;
   randomTvHotkey: string;
   defaultPlaybackMode: OutputMode;
+  hasSeenGuide: boolean;
 }
 
 export interface AppState {

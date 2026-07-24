@@ -37,6 +37,9 @@ const icon = (name: string) => {
     trash: '<path d="M3 6h18M8 6V4h8v2m3 0l-1 15H6L5 6m5 4v7m4-7v7"/>',
     pin: '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 14v7"/>',
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2h3"/>',
+    car: '<path d="M5 17v2m14-2v2M3 14l2-6h14l2 6v4H3zM7 14h.01M17 14h.01M7 8l1.5-3h7L17 8"/>',
+    mouse: '<rect x="7" y="2" width="10" height="20" rx="5"/><path d="M12 2v6"/>',
+    keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h4M7 16h10"/>',
     chevron: '<path d="M9 18l6-6-6-6"/>'
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] ?? ""}</svg>`;
@@ -267,6 +270,7 @@ function renderSettings(view: HTMLElement): void {
     <label class="form-row"><span>Time format</span><select id="time-format"><option value="12-hour" ${state.settings.timeFormat==="12-hour"?"selected":""}>12-hour</option><option value="24-hour" ${state.settings.timeFormat==="24-hour"?"selected":""}>24-hour</option></select><small>Choose how the status-bar clock is displayed.</small></label>
     <label class="form-row"><span>Time zone</span><select id="time-zone"><option value="System" ${state.settings.timeZone==="System"?"selected":""}>System time</option><option value="UTC" ${state.settings.timeZone==="UTC"?"selected":""}>UTC time</option></select><small>Use your computer's time zone or Coordinated Universal Time.</small></label></section>
     <section class="settings-section"><p class="section-label">DATA</p><button id="open-data-folder" class="settings-row"><span class="settings-icon">📁</span><span><strong>Open data folder</strong><small>opens the folder where the App and data is stored</small></span>${icon("chevron")}</button><button id="import-legacy" class="settings-row"><span class="settings-icon">AHK</span><span><strong>Import MusicList.txt</strong><small>Bring your existing AHK library into this app</small></span>${icon("chevron")}</button></section>
+    <section class="settings-section"><p class="section-label">HELP</p><button id="quick-guide" class="settings-row"><span class="settings-icon">${icon("play")}</span><span><strong>Quick guide</strong><small>Review the phone controls and playback modes</small></span>${icon("chevron")}</button></section>
     </div>`;
   document.querySelector<HTMLSelectElement>("#theme-select")!.onchange = async e => { const theme = themes.find(x => x.name === (e.target as HTMLSelectElement).value); if (theme) { state.settings.theme = structuredClone(theme); applyTheme(theme); await api.saveSettings(state.settings); render(); toast("Settings saved"); } else { themeEditor(); } };
   document.querySelector<HTMLButtonElement>("#edit-theme")!.onclick = themeEditor;
@@ -279,6 +283,7 @@ function renderSettings(view: HTMLElement): void {
   document.querySelector<HTMLInputElement>("#window-opacity")!.oninput = e => { const input=e.target as HTMLInputElement,value=+input.value;state.settings.windowOpacity=value;input.parentElement!.querySelector("output")!.textContent=`${Math.round(value*100)}%`;applyWindowOpacity();scheduleSettingsSave(); };
   document.querySelector<HTMLButtonElement>("#import-legacy")!.onclick = async e => { const button=e.currentTarget as HTMLButtonElement;button.disabled=true;button.querySelector("strong")!.textContent="Importing…";try { const count = await api.importLegacy(); state = await api.state(); selectedId = state.songs[0]?.id ?? ""; render();toast(`Imported ${count} songs`); } catch (error) { errorToast(error);button.disabled=false;button.querySelector("strong")!.textContent="Import MusicList.txt"; } };
   document.querySelector<HTMLButtonElement>("#open-data-folder")!.onclick = () => api.openDataFolder().catch(errorToast);
+  document.querySelector<HTMLButtonElement>("#quick-guide")!.onclick = showQuickGuide;
   document.querySelectorAll<HTMLInputElement>("[data-hotkey]").forEach(bindHotkeyRecorder);
   document.querySelector<HTMLButtonElement>("#reset-hotkeys")!.onclick = async () => {
     document.querySelector<HTMLInputElement>("#show-hide-hotkey")!.value="F3";
@@ -469,6 +474,36 @@ function closeModal(): void {
   if (modalEscapeHandler) document.removeEventListener("keydown", modalEscapeHandler);
   modalEscapeHandler = null;
 }
+
+function guideRow(glyph:string,title:string,copy:string,shortcut?:string):string {
+  return `<article class="guide-row"><span class="guide-icon">${shortcut?`<b>${esc(shortcut)}</b>`:icon(glyph)}</span><span><strong>${esc(title)}</strong><small>${copy}</small></span></article>`;
+}
+
+function showQuickGuide():void {
+  const shortcut=state.settings.showHideHotkey||"F3";
+  modal(`<section class="modal-card guide-card" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div class="modal-head guide-head"><div><p class="eyebrow">WELCOME</p><h2 id="guide-title">Quick start</h2></div><button type="button" data-close aria-label="Close quick guide">×</button></div>
+    <div class="guide-list">
+      ${guideRow("mouse","Phone controls","Right-click anywhere on the phone to hide, rotate, pin, lock, or exit the app.")}
+      ${guideRow("youtube","Search YouTube","Search and add songs directly from the phone with the optional Open on YouTube option.")}
+      ${guideRow("play","Play a song","Double-click any song in your Library to use it with the selected playback mode.")}
+      ${guideRow("car","Car mode","Automatically sends <code>/carurl</code> followed by the song URL to GTA chat.")}
+      ${guideRow("copy","Speaker and TV modes","Open the appropriate URL prompt in GTA first. The player copies and pastes the song URL for you and keeps it on your clipboard.")}
+      ${guideRow("keyboard","Show or hide the phone",`Press <b>${esc(shortcut)}</b> at any time. You can change this shortcut in Settings.`,shortcut)}
+    </div>
+    <div class="guide-footer"><button id="guide-done" class="primary-wide">Got it — Open Library</button><small>You can reopen this guide anytime from Settings → Quick guide.</small></div>
+  </section>`);
+  document.querySelector<HTMLButtonElement>("#guide-done")!.onclick=async()=>{
+    state.settings.hasSeenGuide=true;
+    try{await api.saveSettings(state.settings);}catch(error){errorToast(error);return;}
+    closeModal();
+    page="library";
+    localStorage.setItem("eclipse-lite-page",page);
+    renderTabs();
+    render();
+  };
+}
+
 function askConfirmation(title: string, message: string, actionLabel: string): Promise<boolean> {
   return new Promise(resolve => {
     modal(`<section class="modal-card confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div class="confirm-icon">!</div><div><p class="eyebrow">PLEASE CONFIRM</p><h2 id="confirm-title">${esc(title)}</h2><p>${esc(message)}</p></div><div class="confirm-actions"><button id="confirm-cancel" class="confirm-cancel">Cancel</button><button id="confirm-action" class="confirm-danger">${esc(actionLabel)}</button></div></section>`);
@@ -599,7 +634,7 @@ function startVisualizer(): void {
 
 async function init(): Promise<void> {
   try {
-    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";state.settings.timeFormat||="12-hour";state.settings.timeZone||="System";state.settings.showHideHotkey||="F3";state.settings.randomCarHotkey||="Ctrl+F3";state.settings.randomSpeakerHotkey||="Alt+F3";state.settings.randomTvHotkey||="Shift+F3";landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
+    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";state.settings.timeFormat||="12-hour";state.settings.timeZone||="System";state.settings.showHideHotkey||="F3";state.settings.randomCarHotkey||="Ctrl+F3";state.settings.randomSpeakerHotkey||="Alt+F3";state.settings.randomTvHotkey||="Shift+F3";state.settings.hasSeenGuide??=false;landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
     await listen<string>("hotkey", async ({ payload }) => {
       if (!state.songs.length) return;
       const previousMode = state.settings.mode;
@@ -607,6 +642,7 @@ async function init(): Promise<void> {
       selectedId = state.songs[Math.floor(Math.random() * state.songs.length)].id;
       await playSelected(); state.settings.mode = previousMode;
     }).catch(() => undefined);
+    if(!state.settings.hasSeenGuide)window.setTimeout(showQuickGuide,250);
   }
   catch (e) { app.innerHTML = `<div class="fatal"><h1>Could not start Eclipse Phone Player Lite</h1><pre>${esc(String(e))}</pre></div>`; }
 }
