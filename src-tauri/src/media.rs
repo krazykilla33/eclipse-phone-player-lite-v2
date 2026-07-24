@@ -17,6 +17,32 @@ fn video_id(value:&str)->Option<String>{
     }None
 }
 
+fn format_duration(total:u64)->String{
+    let hours=total/3600;
+    let minutes=(total%3600)/60;
+    let seconds=total%60;
+    if hours>0{format!("{hours}:{minutes:02}:{seconds:02}")}else{format!("{minutes}:{seconds:02}")}
+}
+
+fn watch_duration(id:&str)->Option<String>{
+    let url=format!("https://www.youtube.com/watch?v={id}");
+    let html=reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36")
+        .build().ok()?
+        .get(url)
+        .header("Accept-Language","en-US,en;q=0.9")
+        .send().ok()?
+        .error_for_status().ok()?
+        .text().ok()?;
+    for marker in ["\"lengthSeconds\":\"","\\\"lengthSeconds\\\":\\\""]{
+        if let Some(start)=html.find(marker){
+            let digits:String=html[start+marker.len()..].chars().take_while(|c|c.is_ascii_digit()).collect();
+            if let Ok(seconds)=digits.parse::<u64>(){return Some(format_duration(seconds));}
+        }
+    }
+    None
+}
+
 fn text_at(value:&Value,path:&str)->Option<String>{
     let node=value.pointer(path)?;
     node.get("simpleText").and_then(Value::as_str).map(str::to_string).or_else(||{
@@ -55,7 +81,8 @@ pub fn search(query:&str)->Result<Vec<SearchResult>,String>{
 pub fn metadata(url:&str)->Result<SearchResult,String>{
     let id=video_id(url).ok_or("Lite can automatically identify YouTube URLs. Other URLs can be completed through Edit Song.")?;
     let endpoint=format!("https://www.youtube.com/oembed?url={}&format=json",urlencoding::encode(url));let d=get_json(&endpoint)?;
-    Ok(SearchResult{title:d["title"].as_str().unwrap_or("Untitled").into(),channel:d["author_name"].as_str().unwrap_or("Unknown artist").into(),length:"—".into(),url:format!("https://www.youtube.com/watch?v={id}"),thumbnail:d["thumbnail_url"].as_str().map(str::to_string).or_else(||Some(format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")))})
+    let length=watch_duration(&id).unwrap_or_else(||"—".into());
+    Ok(SearchResult{title:d["title"].as_str().unwrap_or("Untitled").into(),channel:d["author_name"].as_str().unwrap_or("Unknown artist").into(),length,url:format!("https://www.youtube.com/watch?v={id}"),thumbnail:d["thumbnail_url"].as_str().map(str::to_string).or_else(||Some(format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")))})
 }
 
 pub fn enrich_legacy_songs(songs:&mut[Song]){let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()as i64;for song in songs{if song.added_at.is_none(){song.added_at=Some(now);}if song.artwork.is_none(){if let Some(id)=video_id(&song.url){song.artwork=Some(format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg"));}}}}
