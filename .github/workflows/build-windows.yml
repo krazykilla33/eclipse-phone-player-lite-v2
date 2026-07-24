@@ -1,0 +1,45 @@
+name: Build Windows Lite App
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build executable and installers
+        run: npm run tauri build
+
+      - name: Upload portable executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eclipse-Phone-Player-Lite-portable
+          path: src-tauri/target/release/eclipse-phone-player-lite.exe
+          if-no-files-found: error
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eclipse-Phone-Player-Lite-installers
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
