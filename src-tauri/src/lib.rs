@@ -31,6 +31,26 @@ fn apply_shortcuts(app:&tauri::AppHandle,settings:&Settings)->Result<(),String>{
     manager.register_multiple(shortcuts).map_err(|e|format!("Could not register the selected hotkeys: {e}"))
 }
 
+fn update_shortcuts(app:&tauri::AppHandle,previous:&Settings,next:&Settings)->Result<(),String>{
+    let old_shortcuts=configured_shortcuts(previous)?;
+    let new_shortcuts=configured_shortcuts(next)?;
+    let changed:Vec<(Shortcut,Shortcut)>=old_shortcuts.into_iter().zip(new_shortcuts).filter(|(old,new)|old!=new).collect();
+    if changed.is_empty(){return Ok(());}
+
+    let manager=app.global_shortcut();
+    let old_changed:Vec<Shortcut>=changed.iter().map(|(old,_)|old.clone()).collect();
+    let new_changed:Vec<Shortcut>=changed.iter().map(|(_,new)|new.clone()).collect();
+    manager.unregister_multiple(old_changed.iter()).map_err(|e|format!("Could not update hotkeys: {e}"))?;
+    if let Err(error)=manager.register_multiple(new_changed.iter()){
+        // A failed multi-register can leave some of the new shortcuts active.
+        // Remove them before restoring the known-good previous bindings.
+        let _=manager.unregister_multiple(new_changed.iter());
+        let _=manager.register_multiple(old_changed.iter());
+        return Err(format!("Could not register the selected hotkeys: {error}"));
+    }
+    Ok(())
+}
+
 fn shortcut_action(settings:&Settings,pressed:&Shortcut)->Option<&'static str>{
     [
         (&settings.show_hide_hotkey,"toggle"),
@@ -55,10 +75,7 @@ fn save_settings(app:tauri::AppHandle,settings:Settings)->Result<(),String>{
         ||previous.random_speaker_hotkey!=settings.random_speaker_hotkey
         ||previous.random_tv_hotkey!=settings.random_tv_hotkey;
     if hotkeys_changed{
-        if let Err(error)=apply_shortcuts(&app,&settings){
-            let _=apply_shortcuts(&app,&previous);
-            return Err(error);
-        }
+        update_shortcuts(&app,&previous,&settings)?;
     }
     storage::save_settings(&app,&settings)
 }

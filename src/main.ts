@@ -345,6 +345,7 @@ function quickAddSong():void {
 }
 
 async function saveSettingsForm(): Promise<void> {
+  window.clearTimeout(settingsSaveTimer);
   const previous=structuredClone(state.settings);
   state.settings.gameExe = document.querySelector<HTMLInputElement>("#game-exe")!.value.trim() || "GTA5.exe";
   state.settings.openChatKey = document.querySelector<HTMLInputElement>("#chat-key")!.value.trim() || "t";
