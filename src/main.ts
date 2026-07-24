@@ -1,5 +1,5 @@
 import "./style.css";
-import { getCurrentWindow, LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
+import { availableMonitors, getCurrentWindow, LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./bridge";
 import { applyTheme, themes } from "./themes";
@@ -217,8 +217,8 @@ function queue(current: string): string {
 function renderYouTube(view: HTMLElement): void {
   view.innerHTML = `
     <form id="youtube-form" class="searchbox youtube-box">${icon("search")}<input id="youtube-query" value="${esc(youtubeQuery)}" placeholder="Songs, artists or videos"/><button class="search-submit" ${busy ? "disabled" : ""}>${busy ? "…" : "Search"}</button></form>
-    <div class="dependency-strip ready"><span><i></i>Classic search ready</span><button id="open-youtube">Open on YouTube</button></div>
-    <div class="results">${busy ? loading("Searching YouTube") : youtubeResults.length ? youtubeResults.map(resultRow).join("") : empty("Search YouTube", "Search in Phone. Browser fallback is available by clicking Open on YouTube.")}</div>`;
+    <div class="dependency-strip ready"><span><i></i>Classic key-free search ready</span><button id="open-youtube">Open on YouTube</button></div>
+    <div class="results">${busy ? loading("Searching YouTube") : youtubeResults.length ? youtubeResults.map(resultRow).join("") : empty("Minimal YouTube search", "Search directly without API keys or helper programs. Browser fallback is always available.")}</div>`;
   document.querySelector<HTMLFormElement>("#youtube-form")!.onsubmit = async e => { e.preventDefault(); youtubeQuery = document.querySelector<HTMLInputElement>("#youtube-query")!.value.trim(); if (!youtubeQuery) return; await searchYouTube(); };
   document.querySelector<HTMLButtonElement>("#open-youtube")!.onclick=()=>api.openYouTubeSearch(youtubeQuery||document.querySelector<HTMLInputElement>("#youtube-query")!.value).catch(errorToast);
   document.querySelectorAll<HTMLButtonElement>("[data-result-add]").forEach(btn => btn.onclick = () => addSearchResult(+btn.dataset.resultAdd!));
@@ -245,18 +245,17 @@ function renderSettings(view: HTMLElement): void {
     ${textSizeRow("headingScale","Headings","Page titles and prominent names",state.settings.headingScale)}
     ${textSizeRow("bodyScale","Normal text","Song names, buttons and form text",state.settings.bodyScale)}
     ${textSizeRow("smallScale","Small text","Metadata, hints and secondary labels",state.settings.smallScale)}
-    ${textSizeRow("navScale","Navigation","Bottom navigation Buttons",state.settings.navScale)}
-    <button id="reset-text-sizes" class="text-reset">Reset text sizes to default</button></section>
+    ${textSizeRow("navScale","Navigation","Bottom navigation labels",state.settings.navScale)}
+    <button id="reset-text-sizes" class="text-reset">Reset text sizes</button></section>
     <section class="settings-section"><p class="section-label">PLAYBACK</p><label class="form-row"><span>Default playback mode</span><select id="default-playback-mode"><option ${state.settings.defaultPlaybackMode==="Car"?"selected":""}>Car</option><option ${state.settings.defaultPlaybackMode==="Speaker"?"selected":""}>Speaker</option><option ${state.settings.defaultPlaybackMode==="TV"?"selected":""}>TV</option></select></label><label class="form-row"><span>Game executable</span><input id="game-exe" value="${esc(state.settings.gameExe)}"/></label><label class="form-row"><span>Chat key</span><input id="chat-key" maxlength="1" value="${esc(state.settings.openChatKey)}"/></label></section>
     <section class="settings-section"><p class="section-label">WINDOW</p>${toggleRow("always-top", "Always on top", "Keep the phone above GTA", state.settings.alwaysOnTop)}${toggleRow("close-after", "Hide after play", "Return focus to GTA", state.settings.closeAfterPlay)}
     ${toggleRow("confirm-exit", "Confirm before exit", "Ask before the × button closes the app", state.settings.confirmBeforeExit)}${toggleRow("remember-position", "Remember window and size", "Restore the phone's last position, size and orientation", state.settings.rememberWindowPosition)}
     ${toggleRow("lock-position", "Lock phone position", "Prevent the phone from being dragged accidentally", positionLocked)}
-    <button id="reset-window-position" class="settings-row"><span class="settings-icon">↺</span><span><strong>Reset window position</strong><small>Move the phone back to the center of the screen</small></span>${icon("chevron")}</button>
     <label class="form-row"><span>Startup orientation</span><select id="startup-orientation"><option ${state.settings.orientation==="Portrait"?"selected":""}>Portrait</option><option ${state.settings.orientation==="Landscape"?"selected":""}>Landscape</option></select></label>
     <label class="form-row"><span>Default page</span><select id="default-page"><option ${state.settings.defaultPage==="Library"?"selected":""}>Library</option><option ${state.settings.defaultPage==="YouTube"?"selected":""}>YouTube</option><option ${state.settings.defaultPage==="Settings"?"selected":""}>Settings</option></select></label>
     <label class="form-row"><span>Default library sorting</span><select id="default-library-sort">${(["Artist","Title","Album","Recently Added","Favorites First"] as const).map(value=>`<option ${state.settings.librarySort===value?"selected":""}>${value}</option>`).join("")}</select></label>
     <label class="form-row range-setting opacity-setting"><span>Phone opacity <output>${Math.round(state.settings.windowOpacity*100)}%</output></span><input id="window-opacity" type="range" min="0.55" max="1" step="0.05" value="${state.settings.windowOpacity}"/><small>Changes the transparency of the complete phone.</small></label>
-    <label class="form-row range-setting"><span>Phone size <output>${Math.round(state.settings.windowScale * 100)}%</output></span><input id="window-scale" type="range" min="0.75" max="1.15" step="0.05" value="${state.settings.windowScale}"/><small>Changes the size of the whole phone.</small></label></section>
+    <label class="form-row range-setting"><span>Phone size <output>${Math.round(state.settings.windowScale * 100)}%</output></span><input id="window-scale" type="range" min="0.75" max="1.15" step="0.05" value="${state.settings.windowScale}"/><small>The layout condenses below 90% while text stays readable.</small></label></section>
     <section class="settings-section"><p class="section-label">MIGRATION</p><button id="import-legacy" class="settings-row"><span class="settings-icon">AHK</span><span><strong>Import MusicList.txt</strong><small>Bring your existing AHK library into this app</small></span>${icon("chevron")}</button></section>
     <button id="save-settings" class="primary-wide">Save settings</button></div>`;
   document.querySelector<HTMLSelectElement>("#theme-select")!.onchange = async e => { const theme = themes.find(x => x.name === (e.target as HTMLSelectElement).value); if (theme) { state.settings.theme = structuredClone(theme); applyTheme(theme); await api.saveSettings(state.settings); render(); } else { themeEditor(); } };
@@ -276,7 +275,6 @@ function renderSettings(view: HTMLElement): void {
     await api.saveSettings(state.settings);
     toast(positionLocked ? "Phone position locked" : "Phone position unlocked");
   };
-  document.querySelector<HTMLButtonElement>("#reset-window-position")!.onclick = resetWindowPosition;
   document.querySelector<HTMLButtonElement>("#save-settings")!.onclick = saveSettingsForm;
 }
 
@@ -483,8 +481,30 @@ function phoneMenu(): void {
 async function restoreWindowPosition():Promise<void>{
   if(!state.settings.rememberWindowPosition)return;
   try{
-    if(state.settings.windowWidth&&state.settings.windowHeight)await getCurrentWindow().setSize(new LogicalSize(state.settings.windowWidth,state.settings.windowHeight));
-    if(state.settings.windowX!=null&&state.settings.windowY!=null)await getCurrentWindow().setPosition(new PhysicalPosition(state.settings.windowX,state.settings.windowY));
+    const width=state.settings.windowWidth||Math.round((landscape?960:530)*state.settings.windowScale);
+    const height=state.settings.windowHeight||Math.round((landscape?530:960)*state.settings.windowScale);
+    await getCurrentWindow().setSize(new LogicalSize(width,height));
+    if(state.settings.windowX==null||state.settings.windowY==null)return;
+
+    const x=state.settings.windowX,y=state.settings.windowY;
+    const monitors=await availableMonitors();
+    const visible=monitors.some(monitor=>{
+      const area=monitor.workArea;
+      const physicalWidth=width*monitor.scaleFactor;
+      const physicalHeight=height*monitor.scaleFactor;
+      const intersectionWidth=Math.max(0,Math.min(x+physicalWidth,area.position.x+area.size.width)-Math.max(x,area.position.x));
+      const intersectionHeight=Math.max(0,Math.min(y+physicalHeight,area.position.y+area.size.height)-Math.max(y,area.position.y));
+      return intersectionWidth>=80&&intersectionHeight>=80;
+    });
+
+    if(visible){
+      await getCurrentWindow().setPosition(new PhysicalPosition(x,y));
+    }else{
+      state.settings.windowX=null;
+      state.settings.windowY=null;
+      await getCurrentWindow().center();
+      await api.saveSettings(state.settings);
+    }
   }catch{}
 }
 
@@ -496,14 +516,6 @@ async function watchWindowGeometry():Promise<void>{
 function scheduleSettingsSave():void {
   window.clearTimeout(sizeSaveTimer);
   sizeSaveTimer=window.setTimeout(()=>api.saveSettings(state.settings).catch(()=>undefined),400);
-}
-
-async function resetWindowPosition():Promise<void> {
-  state.settings.windowX=null;
-  state.settings.windowY=null;
-  try{await getCurrentWindow().center();}catch{}
-  await api.saveSettings(state.settings);
-  toast("Phone moved back to the center");
 }
 
 function startClock(): void { const update = () => { const el = document.querySelector("#clock"); if (el) el.textContent = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(new Date()); }; update(); window.setInterval(update, 30_000); }
