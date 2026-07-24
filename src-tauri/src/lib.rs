@@ -6,7 +6,39 @@ mod windows_control;
 use models::{AppState, SearchResult, Settings, Song};
 use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder};
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+fn configured_shortcuts(settings:&Settings)->Result<Vec<Shortcut>,String>{
+    let values=[
+        ("Show / hide",&settings.show_hide_hotkey),
+        ("Random Car",&settings.random_car_hotkey),
+        ("Random Speaker",&settings.random_speaker_hotkey),
+        ("Random TV",&settings.random_tv_hotkey),
+    ];
+    let mut shortcuts=Vec::new();
+    for(label,value)in values{
+        let shortcut=value.parse::<Shortcut>().map_err(|_|format!("{label} hotkey is not valid: {value}"))?;
+        if shortcuts.contains(&shortcut){return Err(format!("Each action needs a different hotkey. {value} is used more than once."));}
+        shortcuts.push(shortcut);
+    }
+    Ok(shortcuts)
+}
+
+fn apply_shortcuts(app:&tauri::AppHandle,settings:&Settings)->Result<(),String>{
+    let shortcuts=configured_shortcuts(settings)?;
+    let manager=app.global_shortcut();
+    manager.unregister_all().map_err(|e|format!("Could not update hotkeys: {e}"))?;
+    manager.register_multiple(shortcuts).map_err(|e|format!("Could not register the selected hotkeys: {e}"))
+}
+
+fn shortcut_action(settings:&Settings,pressed:&Shortcut)->Option<&'static str>{
+    [
+        (&settings.show_hide_hotkey,"toggle"),
+        (&settings.random_car_hotkey,"random-car"),
+        (&settings.random_speaker_hotkey,"random-speaker"),
+        (&settings.random_tv_hotkey,"random-tv"),
+    ].into_iter().find_map(|(value,action)|value.parse::<Shortcut>().ok().filter(|shortcut|shortcut==pressed).map(|_|action))
+}
 
 #[tauri::command]
 fn get_state(app: tauri::AppHandle) -> Result<AppState,String> {
@@ -15,7 +47,21 @@ fn get_state(app: tauri::AppHandle) -> Result<AppState,String> {
 }
 
 #[tauri::command] fn save_songs(app:tauri::AppHandle,songs:Vec<Song>)->Result<(),String>{storage::save_songs(&app,&songs)}
-#[tauri::command] fn save_settings(app:tauri::AppHandle,settings:Settings)->Result<(),String>{storage::save_settings(&app,&settings)}
+#[tauri::command]
+fn save_settings(app:tauri::AppHandle,settings:Settings)->Result<(),String>{
+    let previous=storage::load_settings(&app)?;
+    let hotkeys_changed=previous.show_hide_hotkey!=settings.show_hide_hotkey
+        ||previous.random_car_hotkey!=settings.random_car_hotkey
+        ||previous.random_speaker_hotkey!=settings.random_speaker_hotkey
+        ||previous.random_tv_hotkey!=settings.random_tv_hotkey;
+    if hotkeys_changed{
+        if let Err(error)=apply_shortcuts(&app,&settings){
+            let _=apply_shortcuts(&app,&previous);
+            return Err(error);
+        }
+    }
+    storage::save_settings(&app,&settings)
+}
 #[tauri::command] fn search_youtube(query:String)->Result<Vec<SearchResult>,String>{if query.trim().is_empty(){return Err("Enter a search phrase.".into());}media::search(query.trim())}
 #[tauri::command] fn fetch_metadata(url:String)->Result<SearchResult,String>{media::metadata(url.trim())}
 #[tauri::command]
@@ -45,9 +91,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,shortcut,event| {
             if event.state()!=ShortcutState::Pressed{return;}
-            let f3=Shortcut::new(None,Code::F3);let ctrl=Shortcut::new(Some(Modifiers::CONTROL),Code::F3);let alt=Shortcut::new(Some(Modifiers::ALT),Code::F3);let shift=Shortcut::new(Some(Modifiers::SHIFT),Code::F3);
-            if shortcut==&f3{if let Some(w)=app.get_webview_window("main"){if w.is_visible().unwrap_or(false){let _=w.hide();}else{let _=w.show();let _=w.set_focus();}}}
-            else if shortcut==&ctrl{let _=app.emit("hotkey","random-car");}else if shortcut==&alt{let _=app.emit("hotkey","random-speaker");}else if shortcut==&shift{let _=app.emit("hotkey","random-tv");}
+            let action=storage::load_settings(app).ok().and_then(|settings|shortcut_action(&settings,shortcut));
+            if action==Some("toggle"){if let Some(w)=app.get_webview_window("main"){if w.is_visible().unwrap_or(false){let _=w.hide();}else{let _=w.show();let _=w.set_focus();}}}
+            else if let Some(action)=action{let _=app.emit("hotkey",action);}
         }).build())
         .setup(|app| {
             let show=MenuItem::with_id(app,"show","Show phone",true,None::<&str>)?;
@@ -64,11 +110,8 @@ pub fn run() {
             });
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}
             tray.build(app)?;
-            let gs=app.global_shortcut();
-            let _=gs.register(Shortcut::new(None,Code::F3));
-            let _=gs.register(Shortcut::new(Some(Modifiers::CONTROL),Code::F3));
-            let _=gs.register(Shortcut::new(Some(Modifiers::ALT),Code::F3));
-            let _=gs.register(Shortcut::new(Some(Modifiers::SHIFT),Code::F3));
+            let settings=storage::load_settings(app.handle()).unwrap_or_default();
+            let _=apply_shortcuts(app.handle(),&settings);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_state,save_songs,save_settings,search_youtube,fetch_metadata,open_youtube_search,send_to_game,copy_url,import_legacy,open_data_folder])

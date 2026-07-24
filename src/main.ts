@@ -248,7 +248,13 @@ function renderSettings(view: HTMLElement): void {
     ${textSizeRow("smallScale","Small text","Metadata, hints and secondary labels",state.settings.smallScale)}
     ${textSizeRow("navScale","Navigation","Bottom navigation Buttons",state.settings.navScale)}
     <button id="reset-text-sizes" class="text-reset">Reset text sizes</button></section>
-    <section class="settings-section"><p class="section-label">PLAYBACK</p><label class="form-row"><span>Default playback mode</span><select id="default-playback-mode"><option ${state.settings.defaultPlaybackMode==="Car"?"selected":""}>Car</option><option ${state.settings.defaultPlaybackMode==="Speaker"?"selected":""}>Speaker</option><option ${state.settings.defaultPlaybackMode==="TV"?"selected":""}>TV</option></select></label><label class="form-row"><span>Game executable</span><input id="game-exe" value="${esc(state.settings.gameExe)}"/></label><label class="form-row"><span>Chat key</span><input id="chat-key" maxlength="1" value="${esc(state.settings.openChatKey)}"/></label></section>
+    <section class="settings-section"><p class="section-label">PLAYBACK</p><label class="form-row"><span>Default playback mode</span><select id="default-playback-mode"><option ${state.settings.defaultPlaybackMode==="Car"?"selected":""}>Car</option><option ${state.settings.defaultPlaybackMode==="Speaker"?"selected":""}>Speaker</option><option ${state.settings.defaultPlaybackMode==="TV"?"selected":""}>TV</option></select></label><label class="form-row"><span>Game executable</span><input id="game-exe" value="${esc(state.settings.gameExe)}"/></label><label class="form-row"><span>Chat key</span><input id="chat-key" maxlength="1" value="${esc(state.settings.openChatKey)}"/></label>
+    <div class="hotkey-settings"><p class="section-label">HOTKEYS</p><p class="hotkey-help">Click a shortcut, then press the new key combination.</p>
+    ${hotkeyRow("show-hide-hotkey","Show or hide phone",state.settings.showHideHotkey)}
+    ${hotkeyRow("random-car-hotkey","Random song • Car",state.settings.randomCarHotkey)}
+    ${hotkeyRow("random-speaker-hotkey","Random song • Speaker",state.settings.randomSpeakerHotkey)}
+    ${hotkeyRow("random-tv-hotkey","Random song • TV",state.settings.randomTvHotkey)}
+    <button id="reset-hotkeys" class="text-reset hotkey-reset">Restore default hotkeys</button></div></section>
     <section class="settings-section"><p class="section-label">WINDOW</p>${toggleRow("always-top", "Always on top", "Keep the phone above GTA", state.settings.alwaysOnTop)}${toggleRow("close-after", "Hide after play", "Return focus to GTA", state.settings.closeAfterPlay)}
     ${toggleRow("confirm-exit", "Confirm before exit", "Ask before the × button closes the app", state.settings.confirmBeforeExit)}${toggleRow("remember-position", "Remember window and size", "Restore the phone's last position, size and orientation", state.settings.rememberWindowPosition)}
     ${toggleRow("lock-position", "Lock phone position", "Prevent the phone from being dragged accidentally", positionLocked)}
@@ -260,8 +266,7 @@ function renderSettings(view: HTMLElement): void {
     <section class="settings-section"><p class="section-label">CLOCK</p>
     <label class="form-row"><span>Time format</span><select id="time-format"><option value="12-hour" ${state.settings.timeFormat==="12-hour"?"selected":""}>12-hour</option><option value="24-hour" ${state.settings.timeFormat==="24-hour"?"selected":""}>24-hour</option></select><small>Choose how the status-bar clock is displayed.</small></label>
     <label class="form-row"><span>Time zone</span><select id="time-zone"><option value="System" ${state.settings.timeZone==="System"?"selected":""}>System time</option><option value="UTC" ${state.settings.timeZone==="UTC"?"selected":""}>UTC time</option></select><small>Use your computer's time zone or Coordinated Universal Time.</small></label></section>
-    <section class="settings-section"><p class="section-label">DATA</p><button id="open-data-folder" class="settings-row"><span class="settings-icon">📁</span><span><strong>Open data folder</strong><small>opens the folder where the App and data is stored</small></span>${icon("chevron")}</button></section>
-    <section class="settings-section"><p class="section-label">MIGRATION</p><button id="import-legacy" class="settings-row"><span class="settings-icon">AHK</span><span><strong>Import MusicList.txt</strong><small>Bring your existing AHK library into this app</small></span>${icon("chevron")}</button></section>
+    <section class="settings-section"><p class="section-label">DATA</p><button id="open-data-folder" class="settings-row"><span class="settings-icon">📁</span><span><strong>Open data folder</strong><small>opens the folder where the App and data is stored</small></span>${icon("chevron")}</button><button id="import-legacy" class="settings-row"><span class="settings-icon">AHK</span><span><strong>Import MusicList.txt</strong><small>Bring your existing AHK library into this app</small></span>${icon("chevron")}</button></section>
     </div>`;
   document.querySelector<HTMLSelectElement>("#theme-select")!.onchange = async e => { const theme = themes.find(x => x.name === (e.target as HTMLSelectElement).value); if (theme) { state.settings.theme = structuredClone(theme); applyTheme(theme); await api.saveSettings(state.settings); render(); toast("Settings saved"); } else { themeEditor(); } };
   document.querySelector<HTMLButtonElement>("#edit-theme")!.onclick = themeEditor;
@@ -274,6 +279,14 @@ function renderSettings(view: HTMLElement): void {
   document.querySelector<HTMLInputElement>("#window-opacity")!.oninput = e => { const input=e.target as HTMLInputElement,value=+input.value;state.settings.windowOpacity=value;input.parentElement!.querySelector("output")!.textContent=`${Math.round(value*100)}%`;applyWindowOpacity();scheduleSettingsSave(); };
   document.querySelector<HTMLButtonElement>("#import-legacy")!.onclick = async e => { const button=e.currentTarget as HTMLButtonElement;button.disabled=true;button.querySelector("strong")!.textContent="Importing…";try { const count = await api.importLegacy(); state = await api.state(); selectedId = state.songs[0]?.id ?? ""; render();toast(`Imported ${count} songs`); } catch (error) { errorToast(error);button.disabled=false;button.querySelector("strong")!.textContent="Import MusicList.txt"; } };
   document.querySelector<HTMLButtonElement>("#open-data-folder")!.onclick = () => api.openDataFolder().catch(errorToast);
+  document.querySelectorAll<HTMLInputElement>("[data-hotkey]").forEach(bindHotkeyRecorder);
+  document.querySelector<HTMLButtonElement>("#reset-hotkeys")!.onclick = async () => {
+    document.querySelector<HTMLInputElement>("#show-hide-hotkey")!.value="F3";
+    document.querySelector<HTMLInputElement>("#random-car-hotkey")!.value="Ctrl+F3";
+    document.querySelector<HTMLInputElement>("#random-speaker-hotkey")!.value="Alt+F3";
+    document.querySelector<HTMLInputElement>("#random-tv-hotkey")!.value="Shift+F3";
+    await saveSettingsForm();
+  };
   ["always-top","close-after","confirm-exit","remember-position","lock-position"].forEach(id => document.querySelector<HTMLInputElement>(`#${id}`)!.onchange = saveSettingsForm);
   ["startup-orientation","default-page","default-library-sort","default-playback-mode","time-format","time-zone"].forEach(id => document.querySelector<HTMLSelectElement>(`#${id}`)!.onchange = saveSettingsForm);
   ["game-exe","chat-key"].forEach(id => document.querySelector<HTMLInputElement>(`#${id}`)!.onchange = saveSettingsForm);
@@ -285,6 +298,33 @@ function toggleRow(id: string, title: string, copy: string, checked: boolean): s
 
 function textSizeRow(key:string,title:string,copy:string,value:number):string {
   return `<label class="text-size-row"><span><strong>${title}</strong><small>${copy}</small></span><output>${Math.round(value*100)}%</output><input data-text-scale="${key}" type="range" min="0.8" max="1.5" step="0.05" value="${value}"/></label>`;
+}
+
+function hotkeyRow(id:string,title:string,value:string):string {
+  return `<label class="hotkey-row"><span>${title}</span><input id="${id}" data-hotkey readonly value="${esc(value)}" aria-label="${esc(title)}"/></label>`;
+}
+
+function bindHotkeyRecorder(input:HTMLInputElement):void {
+  input.onfocus=()=>input.classList.add("recording");
+  input.onblur=()=>input.classList.remove("recording");
+  input.onkeydown=async event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    if(event.key==="Escape"){input.blur();return;}
+    if(["Control","Alt","Shift","Meta"].includes(event.key))return;
+    const aliases:Record<string,string>={" ":"Space",ArrowUp:"ArrowUp",ArrowDown:"ArrowDown",ArrowLeft:"ArrowLeft",ArrowRight:"ArrowRight",PageUp:"PageUp",PageDown:"PageDown"};
+    let key=aliases[event.key]||event.key;
+    if(key.length===1)key=key.toUpperCase();
+    const parts:string[]=[];
+    if(event.ctrlKey)parts.push("Ctrl");
+    if(event.altKey)parts.push("Alt");
+    if(event.shiftKey)parts.push("Shift");
+    if(event.metaKey)parts.push("Super");
+    parts.push(key);
+    input.value=parts.join("+");
+    input.blur();
+    await saveSettingsForm();
+  };
 }
 
 function quickAddSong():void {
@@ -305,6 +345,7 @@ function quickAddSong():void {
 }
 
 async function saveSettingsForm(): Promise<void> {
+  const previous=structuredClone(state.settings);
   state.settings.gameExe = document.querySelector<HTMLInputElement>("#game-exe")!.value.trim() || "GTA5.exe";
   state.settings.openChatKey = document.querySelector<HTMLInputElement>("#chat-key")!.value.trim() || "t";
   state.settings.alwaysOnTop = document.querySelector<HTMLInputElement>("#always-top")!.checked;
@@ -319,10 +360,22 @@ async function saveSettingsForm(): Promise<void> {
   state.settings.defaultPlaybackMode = document.querySelector<HTMLSelectElement>("#default-playback-mode")!.value as typeof state.settings.defaultPlaybackMode;
   state.settings.timeFormat = document.querySelector<HTMLSelectElement>("#time-format")!.value as typeof state.settings.timeFormat;
   state.settings.timeZone = document.querySelector<HTMLSelectElement>("#time-zone")!.value as typeof state.settings.timeZone;
-  await api.saveSettings(state.settings); try { await getCurrentWindow().setAlwaysOnTop(state.settings.alwaysOnTop); } catch { }
-  applyPositionLock();
-  updateClock();
-  toast("Settings saved");
+  state.settings.showHideHotkey = document.querySelector<HTMLInputElement>("#show-hide-hotkey")!.value;
+  state.settings.randomCarHotkey = document.querySelector<HTMLInputElement>("#random-car-hotkey")!.value;
+  state.settings.randomSpeakerHotkey = document.querySelector<HTMLInputElement>("#random-speaker-hotkey")!.value;
+  state.settings.randomTvHotkey = document.querySelector<HTMLInputElement>("#random-tv-hotkey")!.value;
+  try{
+    await api.saveSettings(state.settings);
+    try { await getCurrentWindow().setAlwaysOnTop(state.settings.alwaysOnTop); } catch { }
+    applyPositionLock();
+    updateClock();
+    toast("Settings saved");
+  }catch(error){
+    state.settings=previous;
+    positionLocked=previous.positionLocked;
+    renderSettings(document.querySelector<HTMLElement>("#view")!);
+    errorToast(error);
+  }
 }
 
 function editSong(song?: Song, addAsNew = false): void {
@@ -545,7 +598,7 @@ function startVisualizer(): void {
 
 async function init(): Promise<void> {
   try {
-    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";state.settings.timeFormat||="12-hour";state.settings.timeZone||="System";landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
+    state = await api.state(); state.settings.windowScale = Math.min(1.15, Math.max(.75, state.settings.windowScale || 1)); state.settings.headingScale ||= 1; state.settings.bodyScale ||= 1; state.settings.smallScale ||= 1; state.settings.navScale ||= 1; state.settings.orientation ||= "Portrait";state.settings.defaultPage||="Library";state.settings.librarySort||="Favorites First";state.settings.windowOpacity=Math.min(1,Math.max(.55,state.settings.windowOpacity||1));state.settings.defaultPlaybackMode||=state.settings.mode||"Car";state.settings.timeFormat||="12-hour";state.settings.timeZone||="System";state.settings.showHideHotkey||="F3";state.settings.randomCarHotkey||="Ctrl+F3";state.settings.randomSpeakerHotkey||="Alt+F3";state.settings.randomTvHotkey||="Shift+F3";landscape=state.settings.orientation==="Landscape";positionLocked=state.settings.positionLocked||false;page=({Library:"library",YouTube:"youtube",Settings:"settings"} as const)[state.settings.defaultPage]||"library";state.settings.mode=state.settings.defaultPlaybackMode; selectedId = state.songs[0]?.id ?? ""; applyTheme(state.settings.theme); applyTextScales();applyWindowOpacity(); shell(); await resizePhone(true);await restoreWindowPosition();await watchWindowGeometry();
     await listen<string>("hotkey", async ({ payload }) => {
       if (!state.songs.length) return;
       const previousMode = state.settings.mode;

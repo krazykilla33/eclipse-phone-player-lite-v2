@@ -87,3 +87,14 @@ button,input,select{font:inherit}
   .confirm-card{grid-template-columns:42px 1fr}
   .confirm-icon{width:40px;height:40px;border-radius:13px}
 }
+
+/* Compact global-hotkey editor, sized to fill the Playback card cleanly in landscape. */
+.hotkey-settings{border-top:1px solid #ffffff0c;padding-bottom:5px}
+.hotkey-help{margin:2px 13px 8px;color:var(--muted);font-size:calc(8px * var(--small-scale));line-height:1.4}
+.hotkey-row{min-height:43px;padding:6px 13px;border-top:1px solid #ffffff0c;display:grid;grid-template-columns:minmax(0,1fr) 116px;align-items:center;gap:10px;color:var(--text);font-size:calc(10px * var(--body-scale))}
+.hotkey-row input{width:100%;height:31px;border:1px solid #ffffff16;border-radius:10px;background:var(--field);color:var(--accent);text-align:center;font-weight:700;outline:0;cursor:pointer}
+.hotkey-row input:focus,.hotkey-row input.recording{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent)}
+.hotkey-reset{margin-top:8px}
+@media(max-width:460px){
+  .hotkey-row{grid-template-columns:minmax(0,1fr) 105px;font-size:calc(10px * var(--body-scale))}
+}
