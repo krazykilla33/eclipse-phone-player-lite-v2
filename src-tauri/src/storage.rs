@@ -50,10 +50,41 @@ pub fn save_songs(app: &AppHandle, songs: &[Song]) -> Result<(), String> {
     atomic_json(&data_dir(app)?.join("library.json"), songs)
 }
 
+
 pub fn load_settings(app: &AppHandle) -> Result<Settings, String> {
-    let path = data_dir(app)?.join("settings-lite.json");
-    if !path.exists() { return Ok(Settings::default()); }
-    serde_json::from_str(&fs::read_to_string(path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    let path = data_dir(app)?.join("settings.json");
+
+    if !path.exists() {
+        return Ok(Settings::default());
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| e.to_string())?;
+
+    let mut settings: Settings = serde_json::from_str(&contents)
+        .map_err(|e| e.to_string())?;
+
+    // Automatically migrate old GTA5 or FiveM build settings.
+    let configured = settings.game_exe.trim().to_ascii_lowercase();
+
+    let is_old_fivem = configured
+        .strip_prefix("fivem_b")
+        .and_then(|name| name.strip_suffix("_gtaprocess.exe"))
+        .map(|build| {
+            !build.is_empty()
+                && build.chars().all(|c| c.is_ascii_digit())
+        })
+        .unwrap_or(false);
+
+    if configured.is_empty()
+        || configured == "gta5.exe"
+        || is_old_fivem
+    {
+        settings.game_exe =
+            "FiveM_b*_GTAProcess.exe".to_string();
+    }
+
+    Ok(settings)
 }
 
 pub fn save_settings(app: &AppHandle, settings: &Settings) -> Result<(), String> {
