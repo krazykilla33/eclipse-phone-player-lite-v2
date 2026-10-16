@@ -352,7 +352,9 @@ function quickAddSong():void {
 async function saveSettingsForm(): Promise<void> {
   window.clearTimeout(settingsSaveTimer);
   const previous=structuredClone(state.settings);
-  state.settings.gameExe = document.querySelector<HTMLInputElement>("#game-exe")!.value.trim() || "GTA5.exe";
+  state.settings.gameExe =
+  document.querySelector<HTMLInputElement>("#game-exe")!.value.trim() ||
+  "FiveM_b*_GTAProcess.exe";
   state.settings.openChatKey = document.querySelector<HTMLInputElement>("#chat-key")!.value.trim() || "t";
   state.settings.alwaysOnTop = document.querySelector<HTMLInputElement>("#always-top")!.checked;
   state.settings.closeAfterPlay = document.querySelector<HTMLInputElement>("#close-after")!.checked;
