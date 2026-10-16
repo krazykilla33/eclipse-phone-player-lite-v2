@@ -2,23 +2,38 @@
 mod platform {
     use arboard::Clipboard;
     use std::{path::Path, thread, time::Duration};
+
     use windows::{
         core::PWSTR,
         Win32::{
             Foundation::{BOOL, HWND, LPARAM},
             System::Threading::{
-                OpenProcess, QueryFullProcessImageNameW,
-                PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+                OpenProcess,
+                QueryFullProcessImageNameW,
+                PROCESS_NAME_FORMAT,
+                PROCESS_QUERY_LIMITED_INFORMATION,
             },
             UI::{
                 Input::KeyboardAndMouse::{
-                    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
-                    KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
-                    VK_CONTROL, VK_RETURN,
+                    MapVirtualKeyW,
+                    SendInput,
+                    INPUT,
+                    INPUT_0,
+                    INPUT_KEYBOARD,
+                    KEYBDINPUT,
+                    KEYEVENTF_KEYUP,
+                    KEYEVENTF_SCANCODE,
+                    MAPVK_VK_TO_VSC,
+                    VIRTUAL_KEY,
+                    VK_CONTROL,
+                    VK_RETURN,
                 },
                 WindowsAndMessaging::{
-                    EnumWindows, GetWindowThreadProcessId,
-                    IsWindowVisible, SetForegroundWindow,
+                    EnumWindows,
+                    GetForegroundWindow,
+                    GetWindowThreadProcessId,
+                    IsWindowVisible,
+                    SetForegroundWindow,
                 },
             },
         },
@@ -62,9 +77,8 @@ mod platform {
             )
             .is_ok()
             {
-                let full_path = String::from_utf16_lossy(
-                    &buf[..size as usize],
-                );
+                let full_path =
+                    String::from_utf16_lossy(&buf[..size as usize]);
 
                 let exe = Path::new(&full_path)
                     .file_name()
@@ -97,14 +111,16 @@ mod platform {
 
         if data.hwnd.0.is_null() {
             Err(format!(
-                "Could not find {exe}. Start GTA first or change the executable in Settings."
+                "Could not find {exe}. Start FiveM/GTA first \
+                 or change the executable in Settings."
             ))
         } else {
             Ok(data.hwnd)
         }
     }
 
-    fn key(vk: VIRTUAL_KEY, up: bool) {
+    // Send a virtual-key event and check for failure.
+    fn key(vk: VIRTUAL_KEY, up: bool) -> Result<(), String> {
         let flags = if up {
             KEYEVENTF_KEYUP
         } else {
@@ -124,24 +140,120 @@ mod platform {
             },
         };
 
-        unsafe {
-            let _ = SendInput(
+        send_input_checked(input)
+    }
+
+    // Send a physical scan-code event.
+    fn scan_key(scan: u16, up: bool) -> Result<(), String> {
+        let flags = if up {
+            KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
+        } else {
+            KEYEVENTF_SCANCODE
+        };
+
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: scan,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        send_input_checked(input)
+    }
+
+    fn send_input_checked(input: INPUT) -> Result<(), String> {
+        let sent = unsafe {
+            SendInput(
                 &[input],
                 std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+
+        if sent != 1 {
+            return Err(format!(
+                "Windows failed to send keyboard input: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn press(vk: VIRTUAL_KEY) -> Result<(), String> {
+        key(vk, false)?;
+        key(vk, true)
+    }
+
+    // Open chat using scan-code events with a held key.
+    fn press_chat_key(
+        chat_key: &str,
+        hold_ms: u64,
+    ) -> Result<(), String> {
+        let character = chat_key
+            .chars()
+            .next()
+            .unwrap_or('t')
+            .to_ascii_uppercase();
+
+        if !character.is_ascii_alphanumeric() {
+            return Err(
+                "The configured chat key must be a letter or number."
+                    .into(),
             );
         }
-    }
 
-    fn press(vk: VIRTUAL_KEY) {
-        key(vk, false);
-        key(vk, true);
-    }
+        let vk = character as u32;
 
-    // FiveM: hold the chat key before releasing it.
-    fn press_with_hold(vk: VIRTUAL_KEY, hold_ms: u64) {
-        key(vk, false);
+        let scan = unsafe {
+            MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+        };
+
+        if scan == 0 {
+            return Err(format!(
+                "Could not determine scan code for chat key: {character}"
+            ));
+        }
+
+        scan_key(scan as u16, false)?;
+
         thread::sleep(Duration::from_millis(hold_ms));
-        key(vk, true);
+
+        scan_key(scan as u16, true)?;
+
+        Ok(())
+    }
+
+    // Verify the game owns the foreground window.
+    fn activate_game(hwnd: HWND) -> Result<(), String> {
+        unsafe {
+            if GetForegroundWindow() != hwnd {
+                let _ = SetForegroundWindow(hwnd);
+            }
+        }
+
+        thread::sleep(Duration::from_millis(150));
+
+        for _ in 0..10 {
+            let foreground = unsafe { GetForegroundWindow() };
+
+            if foreground == hwnd {
+                return Ok(());
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        Err(
+            "FiveM/GTA was found, but Windows could not \
+             bring the game window into focus."
+                .into(),
+        )
     }
 
     pub fn send(
@@ -150,7 +262,11 @@ mod platform {
         text: &str,
         open_chat: bool,
     ) -> Result<(), String> {
+        // Find the game before changing clipboard contents.
         let hwnd = find_window(exe)?;
+
+        // Activate the game and verify focus.
+        activate_game(hwnd)?;
 
         let mut clipboard =
             Clipboard::new().map_err(|e| e.to_string())?;
@@ -161,53 +277,43 @@ mod platform {
             .set_text(text)
             .map_err(|e| e.to_string())?;
 
-        unsafe {
-            if !SetForegroundWindow(hwnd).as_bool() {
-                if let Some(value) = old {
-                    let _ = clipboard.set_text(value);
-                }
+        // Execute the input sequence.
+        let result = (|| -> Result<(), String> {
+            if open_chat {
+                // Send scan-code key down, hold, release.
+                press_chat_key(chat_key, 75)?;
 
-                return Err(
-                    "Windows could not activate GTA/FiveM.".into()
-                );
+                // Give FiveM time to open its chat.
+                thread::sleep(Duration::from_millis(100));
             }
-        }
 
-        // Allow FiveM to receive window focus.
-        thread::sleep(Duration::from_millis(150));
+            // Ctrl+V: preserve our confirmed text entry.
+            key(VK_CONTROL, false)?;
 
-        if open_chat {
-            let c = chat_key
-                .chars()
-                .next()
-                .unwrap_or('t')
-                .to_ascii_uppercase() as u16;
+            let paste_result = press(VIRTUAL_KEY('V' as u16));
 
-            // Hold T for 75 ms, as in the AHK script.
-            press_with_hold(VIRTUAL_KEY(c), 75);
+            // Always attempt to release Ctrl.
+            let release_result = key(VK_CONTROL, true);
 
-            // Allow FiveM chat to open.
-            thread::sleep(Duration::from_millis(50));
-        }
+            paste_result?;
+            release_result?;
 
-        // Paste the command or URL.
-        key(VK_CONTROL, false);
-        press(VIRTUAL_KEY('V' as u16));
-        key(VK_CONTROL, true);
+            // Wait before pressing Enter.
+            thread::sleep(Duration::from_millis(90));
 
-        thread::sleep(Duration::from_millis(90));
+            press(VK_RETURN)?;
 
-        // Submit the command.
-        press(VK_RETURN);
+            thread::sleep(Duration::from_millis(180));
 
-        thread::sleep(Duration::from_millis(180));
+            Ok(())
+        })();
 
-        // Restore the previous clipboard content.
+        // Restore the previous clipboard text.
         if let Some(value) = old {
             let _ = clipboard.set_text(value);
         }
 
-        Ok(())
+        result
     }
 }
 
@@ -223,4 +329,3 @@ pub fn send(
 ) -> Result<(), String> {
     Err("GTA control is available in the Windows build.".into())
 }
-
