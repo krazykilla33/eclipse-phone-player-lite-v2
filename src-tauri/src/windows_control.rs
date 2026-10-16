@@ -6,7 +6,7 @@ mod platform {
     use windows::{
         core::PWSTR,
         Win32::{
-            Foundation::{BOOL, HWND, LPARAM},
+            Foundation::{BOOL, HWND, LPARAM, CloseHandle},
             System::Threading::{
                 OpenProcess,
                 QueryFullProcessImageNameW,
@@ -31,6 +31,7 @@ mod platform {
                 WindowsAndMessaging::{
                     EnumWindows,
                     GetForegroundWindow,
+                    GetWindowTextW,
                     GetWindowThreadProcessId,
                     IsWindowVisible,
                     SetForegroundWindow,
@@ -39,9 +40,81 @@ mod platform {
         },
     };
 
+    // Identify a numeric FiveM GTA game process.
+    fn is_fivem_game(name: &str) -> bool {
+        let name = name.trim().to_ascii_lowercase();
+
+        name.strip_prefix("fivem_b")
+            .and_then(|value| {
+                value.strip_suffix("_gtaprocess.exe")
+            })
+            .map(|build| {
+                !build.is_empty()
+                    && build.chars().all(|c| c.is_ascii_digit())
+            })
+            .unwrap_or(false)
+    }
+
+    // Support exact executable names and automatic
+    // FiveM build detection.
+    fn matches_executable(
+        actual: &str,
+        configured: &str,
+    ) -> bool {
+        let actual = actual.trim().to_ascii_lowercase();
+        let configured = configured.trim().to_ascii_lowercase();
+
+        if actual == configured {
+            return true;
+        }
+
+        let auto_fivem =
+            configured == "fivem_b*_gtaprocess.exe"
+                || is_fivem_game(&configured);
+
+        auto_fivem && is_fivem_game(&actual)
+    }
+
+    fn wants_fivem(exe: &str) -> bool {
+        let name = exe.trim().to_ascii_lowercase();
+
+        name == "fivem_b*_gtaprocess.exe"
+            || is_fivem_game(&name)
+    }
+
+    // Read a window title for diagnostic/fallback use.
+    fn window_title(hwnd: HWND) -> String {
+        let mut buffer = vec![0u16; 512];
+
+        let length = unsafe {
+            GetWindowTextW(hwnd, &mut buffer)
+        };
+
+        if length <= 0 {
+            return String::new();
+        }
+
+        String::from_utf16_lossy(
+            &buffer[..length as usize],
+        )
+    }
+
+    // Recognize the distinctive FiveM game title.
+    fn is_fivem_window(title: &str) -> bool {
+        let title = title.to_ascii_lowercase();
+
+        title.contains("fivem")
+            && title.contains("cfx.re")
+    }
+
     struct FindData {
         wanted: String,
         hwnd: HWND,
+        fallback_hwnd: HWND,
+        visible_windows: usize,
+        access_failures: usize,
+        query_failures: usize,
+        matched_titles: usize,
     }
 
     unsafe extern "system" fn enum_proc(
@@ -53,7 +126,19 @@ mod platform {
         }
 
         let data = &mut *(param.0 as *mut FindData);
-        let mut pid = 0;
+        data.visible_windows += 1;
+
+        let title = window_title(hwnd);
+
+        let candidate_fivem_title =
+            wants_fivem(&data.wanted)
+                && is_fivem_window(&title);
+
+        if candidate_fivem_title {
+            data.matched_titles += 1;
+        }
+
+        let mut pid = 0u32;
 
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
@@ -61,34 +146,71 @@ mod platform {
             return BOOL(1);
         }
 
-        if let Ok(process) = OpenProcess(
+        match OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION,
             false,
             pid,
         ) {
-            let mut buf = vec![0u16; 1024];
-            let mut size = buf.len() as u32;
+            Ok(process) => {
+                let mut buffer = vec![0u16; 1024];
+                let mut size = buffer.len() as u32;
 
-            if QueryFullProcessImageNameW(
-                process,
-                PROCESS_NAME_FORMAT(0),
-                PWSTR(buf.as_mut_ptr()),
-                &mut size,
-            )
-            .is_ok()
-            {
-                let full_path =
-                    String::from_utf16_lossy(&buf[..size as usize]);
+                let result = QueryFullProcessImageNameW(
+                    process,
+                    PROCESS_NAME_FORMAT(0),
+                    PWSTR(buffer.as_mut_ptr()),
+                    &mut size,
+                );
 
-                let exe = Path::new(&full_path)
-                    .file_name()
-                    .and_then(|x| x.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
+                // Release the process handle.
+                let _ = CloseHandle(process);
 
-                if exe == data.wanted {
-                    data.hwnd = hwnd;
-                    return BOOL(0);
+                match result {
+                    Ok(()) => {
+                        let full_path =
+                            String::from_utf16_lossy(
+                                &buffer[..size as usize],
+                            );
+
+                        let exe = Path::new(&full_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("");
+
+                        if matches_executable(
+                            exe,
+                            &data.wanted,
+                        ) {
+                            data.hwnd = hwnd;
+
+                            // Found a verified game process.
+                            return BOOL(0);
+                        }
+                    }
+
+                    Err(_) => {
+                        data.query_failures += 1;
+
+                        // Only consider fallback when
+                        // querying this candidate fails.
+                        if candidate_fivem_title
+                            && data.fallback_hwnd.0.is_null()
+                        {
+                            data.fallback_hwnd = hwnd;
+                        }
+                    }
+                }
+            }
+
+            Err(_) => {
+                data.access_failures += 1;
+
+                // A game window with a distinctive
+                // FiveM title can be a fallback.
+                if candidate_fivem_title
+                    && data.fallback_hwnd.0.is_null()
+                {
+                    data.fallback_hwnd = hwnd;
                 }
             }
         }
@@ -96,31 +218,82 @@ mod platform {
         BOOL(1)
     }
 
+    // Find the FiveM/GTA game window.
     fn find_window(exe: &str) -> Result<HWND, String> {
         let mut data = FindData {
-            wanted: exe.to_ascii_lowercase(),
+            wanted: exe.trim().to_ascii_lowercase(),
             hwnd: HWND::default(),
+            fallback_hwnd: HWND::default(),
+            visible_windows: 0,
+            access_failures: 0,
+            query_failures: 0,
+            matched_titles: 0,
         };
 
         unsafe {
             let _ = EnumWindows(
                 Some(enum_proc),
-                LPARAM(&mut data as *mut _ as isize),
+                LPARAM(
+                    &mut data as *mut _ as isize
+                ),
             );
         }
 
-        if data.hwnd.0.is_null() {
-            Err(format!(
-                "Could not find {exe}. Start FiveM/GTA first \
-                 or change the executable in Settings."
-            ))
-        } else {
-            Ok(data.hwnd)
+        // First preference: verified executable match.
+        if !data.hwnd.0.is_null() {
+            return Ok(data.hwnd);
         }
+
+        // Fallback: distinctive FiveM game-window title
+        // when process-path inspection failed.
+        if wants_fivem(exe)
+            && !data.fallback_hwnd.0.is_null()
+        {
+            return Ok(data.fallback_hwnd);
+        }
+
+        Err(format!(
+            "Could not find the game window for {exe}.\n\
+             Visible windows checked: {}\n\
+             FiveM window titles found: {}\n\
+             Process access failures: {}\n\
+             Executable query failures: {}\n\
+             \n\
+             Verify FiveM is running and you are \
+             connected to Eclipse RP.",
+            data.visible_windows,
+            data.matched_titles,
+            data.access_failures,
+            data.query_failures,
+        ))
     }
 
-    // Send a virtual-key event and check for failure.
-    fn key(vk: VIRTUAL_KEY, up: bool) -> Result<(), String> {
+    // Check that Windows accepted each input event.
+    fn send_input_checked(
+        input: INPUT,
+    ) -> Result<(), String> {
+        let sent = unsafe {
+            SendInput(
+                &[input],
+                std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+
+        if sent != 1 {
+            return Err(format!(
+                "Windows failed to send keyboard input: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Virtual-key input for Ctrl+V and Enter.
+    fn key(
+        vk: VIRTUAL_KEY,
+        up: bool,
+    ) -> Result<(), String> {
         let flags = if up {
             KEYEVENTF_KEYUP
         } else {
@@ -143,8 +316,16 @@ mod platform {
         send_input_checked(input)
     }
 
-    // Send a physical scan-code event.
-    fn scan_key(scan: u16, up: bool) -> Result<(), String> {
+    fn press(vk: VIRTUAL_KEY) -> Result<(), String> {
+        key(vk, false)?;
+        key(vk, true)
+    }
+
+    // Physical scan-code input for FiveM chat.
+    fn scan_key(
+        scan: u16,
+        up: bool,
+    ) -> Result<(), String> {
         let flags = if up {
             KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP
         } else {
@@ -167,30 +348,8 @@ mod platform {
         send_input_checked(input)
     }
 
-    fn send_input_checked(input: INPUT) -> Result<(), String> {
-        let sent = unsafe {
-            SendInput(
-                &[input],
-                std::mem::size_of::<INPUT>() as i32,
-            )
-        };
-
-        if sent != 1 {
-            return Err(format!(
-                "Windows failed to send keyboard input: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn press(vk: VIRTUAL_KEY) -> Result<(), String> {
-        key(vk, false)?;
-        key(vk, true)
-    }
-
-    // Open chat using scan-code events with a held key.
+    // Preserve the previously working FiveM
+    // 75-millisecond scan-code chat key.
     fn press_chat_key(
         chat_key: &str,
         hold_ms: u64,
@@ -208,10 +367,11 @@ mod platform {
             );
         }
 
-        let vk = character as u32;
-
         let scan = unsafe {
-            MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+            MapVirtualKeyW(
+                character as u32,
+                MAPVK_VK_TO_VSC,
+            )
         };
 
         if scan == 0 {
@@ -222,14 +382,14 @@ mod platform {
 
         scan_key(scan as u16, false)?;
 
-        thread::sleep(Duration::from_millis(hold_ms));
+        thread::sleep(
+            Duration::from_millis(hold_ms)
+        );
 
-        scan_key(scan as u16, true)?;
-
-        Ok(())
+        scan_key(scan as u16, true)
     }
 
-    // Verify the game owns the foreground window.
+    // Verify that FiveM/GTA receives window focus.
     fn activate_game(hwnd: HWND) -> Result<(), String> {
         unsafe {
             if GetForegroundWindow() != hwnd {
@@ -240,7 +400,9 @@ mod platform {
         thread::sleep(Duration::from_millis(150));
 
         for _ in 0..10 {
-            let foreground = unsafe { GetForegroundWindow() };
+            let foreground = unsafe {
+                GetForegroundWindow()
+            };
 
             if foreground == hwnd {
                 return Ok(());
@@ -256,18 +418,19 @@ mod platform {
         )
     }
 
+    // Public send interface remains unchanged.
     pub fn send(
         exe: &str,
         chat_key: &str,
         text: &str,
         open_chat: bool,
     ) -> Result<(), String> {
-        // Find the game before changing clipboard contents.
+        // Find and activate the game.
         let hwnd = find_window(exe)?;
 
-        // Activate the game and verify focus.
         activate_game(hwnd)?;
 
+        // Preserve clipboard text.
         let mut clipboard =
             Clipboard::new().map_err(|e| e.to_string())?;
 
@@ -277,38 +440,46 @@ mod platform {
             .set_text(text)
             .map_err(|e| e.to_string())?;
 
-        // Execute the input sequence.
+        // Run our existing working keyboard sequence.
         let result = (|| -> Result<(), String> {
             if open_chat {
-                // Send scan-code key down, hold, release.
+                // Press and hold the chat key.
                 press_chat_key(chat_key, 75)?;
 
-                // Give FiveM time to open its chat.
-                thread::sleep(Duration::from_millis(100));
+                // Allow FiveM chat to open.
+                thread::sleep(
+                    Duration::from_millis(100)
+                );
             }
 
-            // Ctrl+V: preserve our confirmed text entry.
+            // Ctrl+V: paste the music command.
             key(VK_CONTROL, false)?;
 
-            let paste_result = press(VIRTUAL_KEY('V' as u16));
+            let paste_result =
+                press(VIRTUAL_KEY('V' as u16));
 
-            // Always attempt to release Ctrl.
-            let release_result = key(VK_CONTROL, true);
+            // Release Ctrl even if paste fails.
+            let release_result =
+                key(VK_CONTROL, true);
 
             paste_result?;
             release_result?;
 
-            // Wait before pressing Enter.
-            thread::sleep(Duration::from_millis(90));
+            thread::sleep(
+                Duration::from_millis(90)
+            );
 
+            // Submit the music command.
             press(VK_RETURN)?;
 
-            thread::sleep(Duration::from_millis(180));
+            thread::sleep(
+                Duration::from_millis(180)
+            );
 
             Ok(())
         })();
 
-        // Restore the previous clipboard text.
+        // Restore previous clipboard text.
         if let Some(value) = old {
             let _ = clipboard.set_text(value);
         }
@@ -327,5 +498,8 @@ pub fn send(
     _text: &str,
     _open_chat: bool,
 ) -> Result<(), String> {
-    Err("GTA control is available in the Windows build.".into())
+    Err(
+        "GTA control is available in the Windows build."
+            .into(),
+    )
 }
